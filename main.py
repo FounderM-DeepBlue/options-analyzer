@@ -24,8 +24,10 @@ from data_fetch import fetch_quote_and_profile
 from chain_scanner import scan_chain
 from history import fetch_realized_vol, lookback_for_tenor
 from events import fetch_next_earnings_date
+from iv_rank import compute_iv_rank
 from scorer import rank_options
 from shortlist import display_shortlist, pick_from_shortlist
+from term_structure import build_term_structure, print_term_structure
 from models import bs_price, bs_greeks, implied_vol, heston_lewis, bates_lewis
 from monte_carlo import run_mc
 from profiles import get_heston_bates_params_from_data, get_heston_bates_params
@@ -46,7 +48,10 @@ def _summarize_profile(profile: dict) -> str:
 
 
 def analyze_picked_option(picked: dict, profile: dict, hist_vol: float,
-                          earnings_date, contracts: int) -> None:
+                          earnings_date, contracts: int,
+                          ivr: float | None = None,
+                          ivp: float | None = None,
+                          ivr_label: str = "N/A") -> None:
     """Run full BS / Heston / Bates / MC analysis on the user's selection."""
     S = profile["S"]
     q = profile.get("q", 0.0)
@@ -102,7 +107,9 @@ def analyze_picked_option(picked: dict, profile: dict, hist_vol: float,
 
     print_report(picked["ticker"], S, K, T, r, q, iv, entry_premium, contracts,
                  opt_type, days, expiry_str,
-                 bs_fv, h_fv, b_fv, greeks, mc, earnings_date=earnings_date)
+                 bs_fv, h_fv, b_fv, greeks, mc,
+                 earnings_date=earnings_date,
+                 ivr=ivr, ivp=ivp, ivr_label=ivr_label)
 
 
 def run_ticker_flow() -> None:
@@ -128,13 +135,24 @@ def run_ticker_flow() -> None:
         dte_earn = (earnings_date - date.today()).days
         print(f"  ✅ Next earnings: {earnings_date.strftime('%Y-%m-%d')}  ({dte_earn} days)")
 
+    while True:
+        raw_type = input("  Contract type [C=Calls / P=Puts / B=Both, default B]: ").strip().upper() or "B"
+        if raw_type in ("C", "P", "B"):
+            break
+        print("  ⚠  Enter C, P, or B.")
+    opt_filter = raw_type  # 'C', 'P', or 'B'
+
     wants_earn = False
     if earnings_date is not None:
         raw = input("  Are you trading the earnings event? [y/N]: ").strip().lower()
         wants_earn = raw == "y"
 
     print(f"\n  Scanning option chain (21/30/45/60/90d + 6mo + 1yr LEAPS, strikes within ±20% of spot)...")
-    candidates = scan_chain(ticker, S)
+    candidates_all = scan_chain(ticker, S)
+    if opt_filter != "B":
+        candidates = [c for c in candidates_all if c["type"] == opt_filter]
+    else:
+        candidates = candidates_all
     if not candidates:
         print(f"  ⚠  Chain scan returned no usable contracts (rate limit or no options).")
         return
@@ -150,6 +168,21 @@ def run_ticker_flow() -> None:
     else:
         print(f"  ✅ {label} realized vol: {hist_vol*100:.1f}%")
 
+    # Term structure: always built from the full chain (calls) regardless of opt_filter
+    ts_rows = build_term_structure(candidates_all, S)
+    print_term_structure(ts_rows, hist_vol)
+
+    # IVR/IVP: use the front-month ATM call IV as "current ticker IV"
+    print("\n  Computing IV Rank / IV Percentile (252-day HV-proxy)...")
+    front_atm_iv = None
+    if ts_rows:
+        front_atm_iv = ts_rows[0]["atm_iv"]
+    ivr, ivp, ivr_label = compute_iv_rank(ticker, front_atm_iv or hist_vol)
+    if ivr is not None:
+        print(f"  ✅ IVR: {ivr:.0f}  |  IVP: {ivp:.0f}th pctile  |  Bias: {ivr_label}")
+    else:
+        print("  ⚠  IVR unavailable (insufficient price history).")
+
     scored = rank_options(
         candidates,
         spot=S,
@@ -163,7 +196,8 @@ def run_ticker_flow() -> None:
     if not scored:
         print("  ⚠  No options passed scoring.")
         return
-    display_shortlist(scored, S, hist_vol, earnings_date)
+    display_shortlist(scored, S, hist_vol, earnings_date,
+                      ivr=ivr, ivp=ivp, ivr_label=ivr_label)
 
     picked = pick_from_shortlist(scored)
     if picked is None:
@@ -180,7 +214,8 @@ def run_ticker_flow() -> None:
             print(f"  ✅ {lookback_label} realized vol: {hist_vol*100:.1f}%")
 
     contracts = int(get_float("\n  Number of contracts [default 1]: ", 1, allow_zero=False))
-    analyze_picked_option(picked, profile, hist_vol, earnings_date, contracts)
+    analyze_picked_option(picked, profile, hist_vol, earnings_date, contracts,
+                          ivr=ivr, ivp=ivp, ivr_label=ivr_label)
 
 
 def main():

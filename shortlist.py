@@ -4,13 +4,20 @@ from datetime import date
 
 
 def display_shortlist(scored: list[dict], spot: float, hist_vol: float,
-                      earnings_date: date | None = None) -> None:
+                      earnings_date: date | None = None,
+                      ivr: float | None = None,
+                      ivp: float | None = None,
+                      ivr_label: str = "N/A") -> None:
     W = 108
     print("\n" + "═" * W)
     print(f"  TOP {len(scored)} CANDIDATES  (ranked by composite score: vol regime + liquidity + EV − earnings penalty)")
     print("═" * W)
-    print(f"  Spot ${spot:.2f}   |   Historical vol: {hist_vol*100:.1f}%   |   "
+    print(f"  Spot ${spot:.2f}   |   HV-60d: {hist_vol*100:.1f}%   |   "
           f"Next earnings: {earnings_date.strftime('%Y-%m-%d') if earnings_date else 'N/A'}")
+    if ivr is not None:
+        ivr_bar = "█" * int(ivr / 10) + "░" * (10 - int(ivr / 10))
+        print(f"  IVR: {ivr:.0f}/100 [{ivr_bar}]  |  IVP: {ivp:.0f}th pctile  |  "
+              f"Bias → {ivr_label}  (HV-proxy, 252-day)")
     print("─" * W)
     print(f"  {'#':<3} {'Tier':<6} {'Type':<5} {'Strike':>8} {'Exp':>12} {'DTE':>4} {'Prem':>7} "
           f"{'IV':>6} {'Spd%':>5} {'OI':>6} {'Vol':>6} {'PoP':>5} {'EV':>9} {'Score':>6}  Flags")

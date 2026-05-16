@@ -9,7 +9,10 @@ def print_report(ticker, S, K, T, r, q, iv, premium, contracts,
                  opt_type, days, expiry_str,
                  bs_fv, h_fv, b_fv,
                  greeks, mc,
-                 earnings_date=None):
+                 earnings_date=None,
+                 ivr: float | None = None,
+                 ivp: float | None = None,
+                 ivr_label: str = "N/A"):
 
     total_cost = premium * 100 * contracts
     if opt_type == "C":
@@ -47,6 +50,10 @@ def print_report(ticker, S, K, T, r, q, iv, premium, contracts,
         ("Risk-Free Rate", f"{r*100:.1f}%"),
         ("Div Yield", f"{q*100:.1f}%"),
     ]
+    if ivr is not None:
+        ivr_bar = "█" * int(ivr / 10) + "░" * (10 - int(ivr / 10))
+        rows.append(("IVR (HV-proxy)", f"{ivr:.0f}/100  [{ivr_bar}]  IVP: {ivp:.0f}th pctile"))
+        rows.append(("IV Bias", ivr_label))
     if earnings_date is not None:
         inside = (earnings_date.toordinal() - date.today().toordinal()) <= days
         rows.append((
