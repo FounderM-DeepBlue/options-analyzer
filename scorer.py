@@ -122,6 +122,21 @@ def score_option(
     return scored
 
 
+TENOR_BUCKETS: list[tuple[str, "callable"]] = [
+    ("SHORT", lambda d: d <= 45),
+    ("MED",   lambda d: 45 < d <= 120),
+    ("LONG",  lambda d: 120 < d <= 270),  # 6-month bucket
+    ("LEAPS", lambda d: d > 270),         # 1-year+ bucket
+]
+
+
+def _bucket_for_dte(dte: int) -> str:
+    for name, pred in TENOR_BUCKETS:
+        if pred(dte):
+            return name
+    return ""
+
+
 def rank_options(
     contracts: list[dict],
     spot: float,
@@ -132,10 +147,40 @@ def rank_options(
     wants_earnings_exposure: bool = False,
     top_n: int = 5,
 ) -> list[dict]:
-    """Score and rank all contracts; return top_n by composite score."""
+    """Score and rank contracts; guarantee at least one pick from each non-empty
+    tenor bucket (short/med/long/LEAPS) so longer-dated structural plays always
+    appear in the shortlist, then fill remaining slots with the highest-scoring
+    contracts overall."""
     scored = [
         score_option(c, spot, hist_vol, r, q, earnings_date, wants_earnings_exposure)
         for c in contracts
     ]
+    for opt in scored:
+        opt["tenor_bucket"] = _bucket_for_dte(opt["dte"])
     scored.sort(key=lambda x: x["composite"], reverse=True)
-    return scored[:top_n]
+
+    picked_idx: set[int] = set()
+    result: list[dict] = []
+
+    # First pass: top-scoring option from each non-empty bucket.
+    for name, pred in TENOR_BUCKETS:
+        for i, opt in enumerate(scored):
+            if i in picked_idx:
+                continue
+            if pred(opt["dte"]):
+                result.append(opt)
+                picked_idx.add(i)
+                break
+        if len(result) >= top_n:
+            break
+
+    # Second pass: fill remaining slots with the highest-scoring un-picked contracts.
+    for i, opt in enumerate(scored):
+        if len(result) >= top_n:
+            break
+        if i not in picked_idx:
+            result.append(opt)
+            picked_idx.add(i)
+
+    result.sort(key=lambda x: x["composite"], reverse=True)
+    return result[:top_n]
