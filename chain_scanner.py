@@ -1,8 +1,10 @@
 """Scan the option chain across canonical DTE windows and a near-money strike range.
 
 Used by the ticker-first flow to gather candidate options before scoring.
-Targets the windows professionals actually watch (21/30/45/60/90 DTE)
-and restricts strikes to ±20% of spot to keep API load bounded.
+Targets the short/medium windows professionals actively trade (21/30/45/60/90 DTE)
+plus a 6-month and 1-year LEAPS target so the shortlist always considers
+longer-dated structural plays. Strikes are restricted to ±20% of spot to keep
+API load bounded.
 """
 
 from datetime import date, datetime, timedelta
@@ -13,8 +15,13 @@ try:
 except ImportError:
     _YQ_AVAILABLE = False
 
-DEFAULT_TARGET_DTES = (21, 30, 45, 60, 90)
+DEFAULT_TARGET_DTES = (21, 30, 45, 60, 90, 180, 365)
 STRIKE_RANGE_PCT = 0.20  # ±20% of spot
+# For long-dated targets, reject a "closest" match if it's not at least 60% of the
+# target DTE — prevents 90-day expiries from impersonating a 1-year LEAPS pick when
+# the underlying simply doesn't have LEAPS listed.
+LONG_DATED_MIN_DTE = 120
+LONG_DATED_TOLERANCE = 0.60
 
 
 def _to_date(value) -> date | None:
@@ -32,13 +39,16 @@ def _to_date(value) -> date | None:
 
 def _pick_expiries(all_expiries: list[date], target_dtes: tuple[int, ...]) -> list[date]:
     today = date.today()
+    future = sorted([d for d in all_expiries if d >= today])
+    if not future:
+        return []
     chosen: list[date] = []
     for tdte in target_dtes:
         target = today + timedelta(days=tdte)
-        future = [d for d in all_expiries if d >= today]
-        if not future:
-            continue
         best = min(future, key=lambda d: abs((d - target).days))
+        best_dte = (best - today).days
+        if tdte >= LONG_DATED_MIN_DTE and best_dte < LONG_DATED_TOLERANCE * tdte:
+            continue  # no long-dated listing available — don't duplicate a short-dated pick
         if best not in chosen:
             chosen.append(best)
     return chosen

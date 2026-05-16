@@ -5,8 +5,8 @@
 ║                                                                  ║
 ║  Ticker-first flow:                                              ║
 ║    1. Enter ticker                                               ║
-║    2. Scan chain across canonical DTE windows + near-money       ║
-║       strikes (~70 candidates)                                   ║
+║    2. Scan chain across canonical DTE windows (21/30/45/60/90d   ║
+║       + 6mo + 1yr LEAPS) and near-money strikes                  ║
 ║    3. Score each on vol regime, liquidity, EV, earnings risk     ║
 ║    4. Show top 5 ranked shortlist                                ║
 ║    5. User picks one → full BS/Heston/Bates/MC deep analysis     ║
@@ -133,7 +133,7 @@ def run_ticker_flow() -> None:
         raw = input("  Are you trading the earnings event? [y/N]: ").strip().lower()
         wants_earn = raw == "y"
 
-    print(f"\n  Scanning option chain (5 expiries × strikes within ±20% of spot)...")
+    print(f"\n  Scanning option chain (21/30/45/60/90d + 6mo + 1yr LEAPS, strikes within ±20% of spot)...")
     candidates = scan_chain(ticker, S)
     if not candidates:
         print(f"  ⚠  Chain scan returned no usable contracts (rate limit or no options).")
