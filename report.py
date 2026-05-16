@@ -4,6 +4,11 @@ from datetime import date
 import numpy as np
 from scipy.stats import norm
 
+from liquidity import print_liquidity_block
+from implied_move import print_implied_move_block
+from technicals import print_technicals_block
+from position_sizing import print_sizing_block
+
 
 def print_report(ticker, S, K, T, r, q, iv, premium, contracts,
                  opt_type, days, expiry_str,
@@ -12,7 +17,14 @@ def print_report(ticker, S, K, T, r, q, iv, premium, contracts,
                  earnings_date=None,
                  ivr: float | None = None,
                  ivp: float | None = None,
-                 ivr_label: str = "N/A"):
+                 ivr_label: str = "N/A",
+                 vix_regime: dict | None = None,
+                 tech: dict | None = None,
+                 liq: dict | None = None,
+                 im: dict | None = None,
+                 crush: dict | None = None,
+                 sizing: dict | None = None,
+                 portfolio_value: float | None = None):
 
     total_cost = premium * 100 * contracts
     if opt_type == "C":
@@ -61,6 +73,12 @@ def print_report(ticker, S, K, T, r, q, iv, premium, contracts,
             f"{earnings_date.strftime('%Y-%m-%d')}"
             f"{'  ⚠ INSIDE EXPIRY' if inside else ''}",
         ))
+    if vix_regime and vix_regime.get("vix") is not None:
+        rows.append((
+            "VIX / Macro",
+            f"{vix_regime['vix']:.1f}  →  {vix_regime['regime']}  "
+            f"(size scalar {vix_regime['scalar']:.2f}×)",
+        ))
     for k, v in rows:
         print(f"  {k:<18} {v}")
 
@@ -86,6 +104,19 @@ def print_report(ticker, S, K, T, r, q, iv, premium, contracts,
     print(f"  Theta:  ${g['theta']*100*contracts:.2f}/day  →  ${g['theta']*100*contracts*30:.0f}/month")
     print(f"  Vega:   ${g['vega']*100*contracts:.2f} per 1% IV increase")
     print(f"  Rho:    ${g['rho']*100*contracts:.2f} per 1% rate change")
+
+    # Liquidity (#2)
+    if liq is not None:
+        print_liquidity_block(liq, premium)
+
+    # Implied move (#3)
+    if im is not None:
+        earn_in_window = earnings_date is not None and (earnings_date.toordinal() - date.today().toordinal()) <= days
+        print_implied_move_block(im, S, earn_in_window, crush)
+
+    # Technical levels (#7)
+    if tech is not None:
+        print_technicals_block(tech, S, K, days)
 
     # Monte Carlo
     header("🎲  MONTE CARLO  (100,000 simulations)")
@@ -142,6 +173,10 @@ def print_report(ticker, S, K, T, r, q, iv, premium, contracts,
     print(f"  {'─'*14}─┼─{'─'*10}─┼─{'─'*10}─┼─{'─'*10}")
     for p, label in [(5,"5th  (bear)"),(25,"25th      "),(50,"50th (base)"),(75,"75th      "),(90,"90th (bull)"),(95,"95th      ")]:
         print(f"  {label}  │  ${np.percentile(ST_bs,p):>8.2f} │  ${np.percentile(St_h,p):>8.2f} │  ${np.percentile(St_b,p):>8.2f}")
+
+    # Position sizing (#5) — only when a portfolio value was provided
+    if sizing is not None and portfolio_value:
+        print_sizing_block(sizing, portfolio_value, contracts)
 
     # Summary
     header("🔍  SUMMARY")
